@@ -1,0 +1,81 @@
+package server
+
+import (
+	"bufio"
+	"fmt"
+	"log"
+	"net"
+	"strings"
+
+	"github.com/121watts/reredis/internal/store"
+)
+
+func Start(address string, s *store.Store) error {
+	ln, err := net.Listen("tcp", address)
+
+	if err != nil {
+		return fmt.Errorf("failed to bind: %w", err)
+	}
+
+	return StartWithListener(ln, s)
+}
+
+func StartWithListener(ln net.Listener, s *store.Store) error {
+	defer ln.Close()
+	log.Printf("Listening on %s", ln.Addr().String())
+
+	for {
+		conn, err := ln.Accept()
+
+		if err != nil {
+			log.Printf("Failed to accept connection %v", err)
+			continue
+		}
+
+		go handleConnection(conn, s)
+	}
+}
+
+func handleConnection(conn net.Conn, s *store.Store) {
+	defer conn.Close()
+
+	scanner := bufio.NewScanner(conn)
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		parts := strings.Fields(line)
+
+		if len(parts) == 0 {
+			fmt.Fprintf(conn, "-ERR empty command\r\n")
+			continue
+		}
+
+		cmd := strings.ToUpper(parts[0])
+
+		switch cmd {
+		case "SET":
+			handleSet(parts, s, conn)
+		case "GET":
+			fmt.Fprintf(conn, "not implemented\r\n")
+		default:
+			fmt.Fprintf(conn, "-ERR unknown command\r\n")
+		}
+
+	}
+
+	if err := scanner.Err(); err != nil {
+		log.Printf("Error reading from connection: %v", err)
+	}
+}
+
+func handleSet(parts []string, s *store.Store, conn net.Conn) {
+	const expectedParts = 3
+	if len(parts) != expectedParts {
+		fmt.Fprintf(conn, "-ERR wrong number of arguments for 'SET'\r\n")
+		return
+	}
+
+	k, v := parts[1], parts[2]
+	s.Set(k, v)
+	fmt.Fprintf(conn, "+OK\r\n")
+}

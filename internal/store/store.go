@@ -22,3 +22,9 @@ func (s *Store) Get(key string) (string, bool) {
 
 	return v, ok
 }
+
+func NewStore() *Store {
+	return &Store{
+		data: make(map[string]string),
+	}
+}
