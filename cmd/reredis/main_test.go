@@ -56,7 +56,12 @@ func TestIntegrationSetAndGet(t *testing.T) {
 	}
 
 	getResp := sendCommand(t, conn, "GET foo")
-	if getResp != "not implemented\r\n" {
-		t.Errorf("expected 'not implemented', got %q", getResp)
+	if getResp != "bar\r\n" {
+		t.Errorf("expected 'bar\\r\\n', got %q", getResp)
+	}
+
+	getNilResp := sendCommand(t, conn, "GET baz")
+	if getNilResp != "-ERR key not found\r\n" {
+		t.Errorf("expected '-ERR key not found\\r\\n', got %q", getNilResp)
 	}
 }

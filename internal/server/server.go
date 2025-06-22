@@ -56,7 +56,7 @@ func handleConnection(conn net.Conn, s *store.Store) {
 		case "SET":
 			handleSet(parts, s, conn)
 		case "GET":
-			fmt.Fprintf(conn, "not implemented\r\n")
+			handleGet(parts, s, conn)
 		default:
 			fmt.Fprintf(conn, "-ERR unknown command\r\n")
 		}
@@ -78,4 +78,24 @@ func handleSet(parts []string, s *store.Store, conn net.Conn) {
 	k, v := parts[1], parts[2]
 	s.Set(k, v)
 	fmt.Fprintf(conn, "+OK\r\n")
+}
+
+func handleGet(parts []string, s *store.Store, conn net.Conn) {
+	const expectedParts = 2
+
+	if len(parts) != expectedParts {
+		fmt.Fprintf(conn, "-ERR wrong number of arguments for 'GET'\r\n")
+		return
+	}
+
+	k := parts[1]
+
+	v, ok := s.Get(k)
+
+	if !ok {
+		fmt.Fprintf(conn, "-ERR key not found\r\n")
+		return
+	}
+
+	fmt.Fprintf(conn, "%s\r\n", v)
 }
