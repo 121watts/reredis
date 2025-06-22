@@ -39,6 +39,14 @@ func StartWithListener(ln net.Listener, s *store.Store, logger *slog.Logger, hub
 	}
 }
 
+type command func(parts []string, s *store.Store, conn net.Conn, hub *observer.Hub, logger *slog.Logger)
+
+var commandTable = map[string]command{
+	"SET": handleSet,
+	"GET": handleGet,
+	"DEL": handleDelete,
+}
+
 func handleConnection(conn net.Conn, s *store.Store, logger *slog.Logger, hub *observer.Hub) {
 	defer conn.Close()
 
@@ -55,17 +63,12 @@ func handleConnection(conn net.Conn, s *store.Store, logger *slog.Logger, hub *o
 
 		cmd := strings.ToUpper(parts[0])
 
-		switch cmd {
-		case "SET":
-			handleSet(parts, s, conn, hub)
-		case "GET":
-			handleGet(parts, s, conn, hub)
-		case "DEL":
-			handleDelete(parts, s, conn, hub)
-		default:
+		handler, ok := commandTable[cmd]
+		if !ok {
 			fmt.Fprintf(conn, "-ERR unknown command\r\n")
+			continue
 		}
-
+		handler(parts, s, conn, hub, logger)
 	}
 
 	if err := scanner.Err(); err != nil {
@@ -73,7 +76,7 @@ func handleConnection(conn net.Conn, s *store.Store, logger *slog.Logger, hub *o
 	}
 }
 
-func handleSet(parts []string, s *store.Store, conn net.Conn, hub *observer.Hub) {
+func handleSet(parts []string, s *store.Store, conn net.Conn, hub *observer.Hub, _ *slog.Logger) {
 	const expectedParts = 3
 	if len(parts) != expectedParts {
 		fmt.Fprintf(conn, "-ERR wrong number of arguments for 'SET'\r\n")
@@ -88,7 +91,7 @@ func handleSet(parts []string, s *store.Store, conn net.Conn, hub *observer.Hub)
 	fmt.Fprintf(conn, "+OK\r\n")
 }
 
-func handleGet(parts []string, s *store.Store, conn net.Conn, hub *observer.Hub) {
+func handleGet(parts []string, s *store.Store, conn net.Conn, _ *observer.Hub, _ *slog.Logger) {
 	const expectedParts = 2
 
 	if len(parts) != expectedParts {
@@ -105,14 +108,10 @@ func handleGet(parts []string, s *store.Store, conn net.Conn, hub *observer.Hub)
 		return
 	}
 
-	hub.BroadcastMessage(observer.UpdateMessage{
-		Action: "get", Key: k,
-	})
-
 	fmt.Fprintf(conn, "%s\r\n", v)
 }
 
-func handleDelete(parts []string, s *store.Store, conn net.Conn, hub *observer.Hub) {
+func handleDelete(parts []string, s *store.Store, conn net.Conn, hub *observer.Hub, _ *slog.Logger) {
 	const expectedParts = 2
 
 	if len(parts) != expectedParts {
