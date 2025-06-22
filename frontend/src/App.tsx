@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef } from 'react';
-import './App.css'
 //
 // Define message types to match the Go backend for type safety
 interface UpdateMessage {
