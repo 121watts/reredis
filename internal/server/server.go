@@ -3,40 +3,40 @@ package server
 import (
 	"bufio"
 	"fmt"
-	"log"
+	"log/slog"
 	"net"
 	"strings"
 
 	"github.com/121watts/reredis/internal/store"
 )
 
-func Start(address string, s *store.Store) error {
+func Start(address string, s *store.Store, logger *slog.Logger) error {
 	ln, err := net.Listen("tcp", address)
 
 	if err != nil {
 		return fmt.Errorf("failed to bind: %w", err)
 	}
 
-	return StartWithListener(ln, s)
+	return StartWithListener(ln, s, logger)
 }
 
-func StartWithListener(ln net.Listener, s *store.Store) error {
+func StartWithListener(ln net.Listener, s *store.Store, logger *slog.Logger) error {
 	defer ln.Close()
-	log.Printf("Listening on %s", ln.Addr().String())
+	logger.Info("listening on port", "addr", ln.Addr().String())
 
 	for {
 		conn, err := ln.Accept()
 
 		if err != nil {
-			log.Printf("Failed to accept connection %v", err)
+			logger.Error("failed to accept connection", "error", err)
 			continue
 		}
 
-		go handleConnection(conn, s)
+		go handleConnection(conn, s, logger.With("remote_addr", conn.RemoteAddr().String()))
 	}
 }
 
-func handleConnection(conn net.Conn, s *store.Store) {
+func handleConnection(conn net.Conn, s *store.Store, logger *slog.Logger) {
 	defer conn.Close()
 
 	scanner := bufio.NewScanner(conn)
