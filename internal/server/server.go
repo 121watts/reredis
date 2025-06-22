@@ -57,6 +57,8 @@ func handleConnection(conn net.Conn, s *store.Store, logger *slog.Logger) {
 			handleSet(parts, s, conn)
 		case "GET":
 			handleGet(parts, s, conn)
+		case "DEL":
+			handleDelete(parts, s, conn)
 		default:
 			fmt.Fprintf(conn, "-ERR unknown command\r\n")
 		}
@@ -64,7 +66,7 @@ func handleConnection(conn net.Conn, s *store.Store, logger *slog.Logger) {
 	}
 
 	if err := scanner.Err(); err != nil {
-		log.Printf("Error reading from connection: %v", err)
+		logger.Error("error reading from connection", "error", err)
 	}
 }
 
@@ -98,4 +100,23 @@ func handleGet(parts []string, s *store.Store, conn net.Conn) {
 	}
 
 	fmt.Fprintf(conn, "%s\r\n", v)
+}
+
+func handleDelete(parts []string, s *store.Store, conn net.Conn) {
+	const expectedParts = 2
+
+	if len(parts) != expectedParts {
+		fmt.Fprintf(conn, "-ERR wrong number of arguments for 'DEL'\r\n")
+		return
+	}
+
+	k := parts[1]
+
+	ok := s.Delete(k)
+
+	if ok {
+		fmt.Fprintf(conn, ":1\r\n")
+	} else {
+		fmt.Fprintf(conn, ":0\r\n")
+	}
 }
