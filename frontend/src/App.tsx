@@ -1,197 +1,54 @@
-import { useState, useEffect, useRef } from 'react';
-//
-// Define message types to match the Go backend for type safety
-interface SetMessage {
-  action: 'set';
-  key: string;
-  value: string;
-}
-
-interface DelMessage {
-  action: 'del';
-  key: string;
-}
-
-interface SyncMessage {
-  action: 'sync';
-  data: Record<string, string>;
-}
-
-type ServerMessage = SetMessage | DelMessage | SyncMessage;
-
-// Component to display connection status with a pulsing dot
-const ConnectionStatus = ({ isConnected }: { isConnected: boolean }) => (
-  <div className="flex items-center gap-2">
-    <span className={`relative flex h-3 w-3`}>
-      <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${isConnected ? 'bg-green-400' : 'bg-red-400'} opacity-75`}></span>
-      <span className={`relative inline-flex rounded-full h-3 w-3 ${isConnected ? 'bg-green-500' : 'bg-red-500'}`}></span>
-    </span>
-    <span className="text-sm text-slate-400">
-      {isConnected ? 'Connected' : 'Disconnected'}
-    </span>
-  </div>
-);
+import { ConnectionStatus } from '@/components/ConnectionStatus';
+import { CommandForm } from '@/components/CommandForm';
+import { DataTable } from '@/components/DataTable';
+import { useWebSocket } from '@/hooks/useWebSocket';
 
 function App() {
-  const [data, setData] = useState<Record<string, string>>({});
-  const [isConnected, setIsConnected] = useState(false);
-  const [form, setForm] = useState({ key: '', value: '' });
-  const ws = useRef<WebSocket | null>(null);
-  const keyInputRef = useRef<HTMLInputElement>(null);
+  const { data, isConnected, sendCommand } = useWebSocket('ws://localhost:8080/ws');
 
-  useEffect(() => {
-    const socket = new WebSocket('ws://localhost:8080/ws');
-    ws.current = socket;
-
-    keyInputRef.current?.focus();
-
-    socket.onopen = () => {
-      console.log('Connected to WebSocket');
-      setIsConnected(true);
-      // On connect, ask the server for the current state
-      socket.send(JSON.stringify({ action: 'get_all' }));
-    };
-
-    socket.onmessage = (event) => {
-      const message: ServerMessage = JSON.parse(event.data);
-      console.log('Received message:', message);
-
-      switch (message.action) {
-        case 'sync':
-          // Full state sync from server
-          setData(message.data);
-          break;
-        case 'set':
-          // A single key was set
-          setData(prevData => ({ ...prevData, [message.key]: message.value }));
-          break;
-        case 'del':
-          // A single key was deleted
-          setData(prevData => {
-            const newData = { ...prevData };
-            delete newData[message.key];
-            return newData;
-          });
-          break;
-      }
-    };
-
-    socket.onclose = () => {
-      console.log('Disconnected from WebSocket');
-      setIsConnected(false);
-    };
-
-    socket.onerror = (error) => {
-      console.error('WebSocket Error:', error);
-      setIsConnected(false);
-    };
-
-    // Cleanup on component unmount
-    return () => {
-      socket.close();
-    };
-  }, []);
-
-  const handleFormChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setForm({ ...form, [e.target.name]: e.target.value });
+  const handleSendCommand = (action: 'set' | 'del', key: string, value?: string) => {
+    sendCommand(action, key, value);
   };
 
-  const sendCommand = (action: 'set' | 'del', keyOverride?: string) => {
-    if (ws.current && ws.current.readyState === WebSocket.OPEN) {
-      const key = keyOverride || form.key;
-      if (!key) {
-        alert('Key cannot be empty.');
-        return;
-      }
-      const command = { action, key, value: action === 'set' ? form.value : '' };
-      ws.current.send(JSON.stringify(command));
-
-      // Clear form and refocus after sending a SET command from the main input
-      if (action === 'set' && !keyOverride) {
-        setForm({ key: '', value: '' });
-        keyInputRef.current?.focus();
-      }
-    } else {
-      alert('WebSocket is not connected.');
-    }
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') {
-      e.preventDefault(); // prevent form submission if it were in a form
-      sendCommand('set');
-    }
+  const handleDelete = (key: string) => {
+    sendCommand('del', key);
   };
 
   return (
-    <div className="min-h-screen bg-slate-900 text-slate-100 font-sans">
-      <div className="container mx-auto p-4 md:p-8 max-w-4xl">
-        <header className="flex justify-between items-center mb-8">
-          <h1 className="text-3xl font-bold text-white">Reredis Live View</h1>
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 text-slate-100 font-sans relative overflow-hidden">
+      {/* Background Effects */}
+      <div className="absolute inset-0 opacity-50" style={{
+        backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%239C92AC' fill-opacity='0.05'%3E%3Ccircle cx='30' cy='30' r='2'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")`
+      }}></div>
+      <div className="absolute top-0 -left-4 w-72 h-72 bg-purple-500 rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-blob"></div>
+      <div className="absolute top-0 -right-4 w-72 h-72 bg-blue-500 rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-blob animation-delay-2000"></div>
+      <div className="absolute -bottom-8 left-20 w-72 h-72 bg-pink-500 rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-blob animation-delay-4000"></div>
+
+      <div className="relative z-10 container mx-auto p-4 md:p-8 max-w-6xl">
+        <header className="flex justify-between items-center mb-12">
+          <div className="flex items-center space-x-4">
+            <div className="p-3 bg-gradient-to-r from-purple-500 to-blue-500 rounded-2xl shadow-lg">
+              <svg className="w-8 h-8 text-white" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M3 4a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V4zm0 4a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V8zm0 4a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1v-2z" clipRule="evenodd" />
+              </svg>
+            </div>
+            <div>
+              <h1 className="text-4xl font-bold bg-gradient-to-r from-white via-purple-200 to-purple-400 bg-clip-text text-transparent">
+                Reredis
+              </h1>
+              <p className="text-slate-400 text-sm">Live Key-Value Store</p>
+            </div>
+          </div>
           <ConnectionStatus isConnected={isConnected} />
         </header>
 
-        <div className="bg-slate-800/50 p-6 rounded-lg shadow-lg mb-8 ring-1 ring-white/10">
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-            <input
-              ref={keyInputRef}
-              name="key"
-              placeholder="Key"
-              value={form.key}
-              onChange={handleFormChange}
-              onKeyDown={handleKeyDown}
-              className="md:col-span-2 bg-slate-900/70 rounded-md p-3 ring-1 ring-inset ring-slate-700 focus:ring-2 focus:ring-inset focus:ring-indigo-500 outline-none"
-            />
-            <input
-              name="value"
-              placeholder="Value (for SET)"
-              value={form.value}
-              onChange={handleFormChange}
-              onKeyDown={handleKeyDown}
-              className="md:col-span-2 bg-slate-900/70 rounded-md p-3 ring-1 ring-inset ring-slate-700 focus:ring-2 focus:ring-inset focus:ring-indigo-500 outline-none"
-            />
-            <div className="md:col-span-1">
-              <button onClick={() => sendCommand('set')} className="w-full bg-indigo-600 hover:bg-indigo-500 rounded-md p-3 font-semibold shadow-sm transition-colors">SET</button>
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-slate-800/50 rounded-lg shadow-lg ring-1 ring-white/10">
-          <table className="w-full text-left">
-            <thead className="border-b border-slate-700">
-              <tr>
-                <th className="p-4 text-sm font-semibold text-slate-300">Key</th>
-                <th className="p-4 text-sm font-semibold text-slate-300">Value</th>
-                <th className="p-4 w-20"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {Object.entries(data).length > 0 ? (
-                Object.entries(data).map(([key, value]) => (
-                  <tr key={key} className="border-b border-slate-800 group">
-                    <td className="p-4 font-mono text-indigo-400">{key}</td>
-                    <td className="p-4 font-mono text-slate-300">{value}</td>
-                    <td className="p-4 text-right">
-                      <button
-                        onClick={() => sendCommand('del', key)}
-                        className="invisible group-hover:visible bg-red-600 hover:bg-red-500 rounded-md px-3 py-1 text-xs font-semibold shadow-sm transition-colors"
-                      >
-                        DEL
-                      </button>
-                    </td>
-                  </tr>
-                ))
-              ) : (
-                <tr>
-                  <td colSpan={3} className="p-8 text-center text-slate-500">No data in store. Use SET to add some!</td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+        <div className="grid gap-8">
+          <CommandForm onSendCommand={handleSendCommand} isConnected={isConnected} />
+          <DataTable data={data} onDelete={handleDelete} isConnected={isConnected} />
         </div>
       </div>
     </div>
-  )
+  );
 }
 
-export default App
+export default App;
