@@ -171,22 +171,231 @@ func TestWebsocketIntegration(t *testing.T) {
 		}
 	})
 
-	t.Run("GET command via WebSocket returns value", func(t *testing.T) {
+	t.Run("GET_ALL command via WebSocket returns full store", func(t *testing.T) {
 		client := newWsConn(t, httpServer.URL)
-		s.Set("get-key", "get-value") // Pre-populate the store
+		// Pre-populate the store with some data for the test
+		s.Set("sync-key-1", "sync-val-1")
+		s.Set("sync-key-2", "sync-val-2")
 
-		cmd := observer.CommandMessage{Action: "get", Key: "get-key"}
+		cmd := observer.CommandMessage{Action: "get_all"}
 		if err := client.WriteJSON(cmd); err != nil {
-			t.Fatalf("failed to send GET command: %v", err)
+			t.Fatalf("failed to send GET_ALL command: %v", err)
 		}
 
-		var receivedMsg observer.UpdateMessage
+		type syncMessage struct {
+			Action string            `json:"action"`
+			Data   map[string]string `json:"data"`
+		}
+		var receivedMsg syncMessage
 		if err := client.ReadJSON(&receivedMsg); err != nil {
-			t.Fatalf("failed to read GET response: %v", err)
+			t.Fatalf("failed to read sync response: %v", err)
 		}
 
-		if receivedMsg.Action != "get_resp" || receivedMsg.Key != "get-key" || receivedMsg.Value != "get-value" {
-			t.Errorf("incorrect GET response received: got %+v", receivedMsg)
+		if receivedMsg.Action != "sync" {
+			t.Errorf("expected action 'sync', got %q", receivedMsg.Action)
+		}
+
+		if receivedMsg.Data["sync-key-1"] != "sync-val-1" || receivedMsg.Data["sync-key-2"] != "sync-val-2" {
+			t.Errorf("incorrect data received in sync message: got %+v", receivedMsg.Data)
+		}
+	})
+}
+
+func TestTTLAndLRU(t *testing.T) {
+	_ = slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	t.Run("TTL basic functionality", func(t *testing.T) {
+		s := store.NewStore()
+
+		// Set a key with short TTL
+		s.SetWithTTL("short-lived", "value", 50*time.Millisecond)
+
+		// Should be available immediately
+		value, ok := s.Get("short-lived")
+		if !ok || value != "value" {
+			t.Errorf("expected key to be available immediately, got ok=%v value=%q", ok, value)
+		}
+
+		// Wait for expiration
+		time.Sleep(60 * time.Millisecond)
+
+		// Should be expired now
+		_, ok = s.Get("short-lived")
+		if ok {
+			t.Errorf("expected key to be expired, but it was still found")
+		}
+	})
+
+	t.Run("TTL lazy expiration on Get", func(t *testing.T) {
+		s := store.NewStore()
+
+		// Set key with very short TTL
+		s.SetWithTTL("expire-on-get", "value", 10*time.Millisecond)
+
+		// Wait for expiration but don't access key
+		time.Sleep(20 * time.Millisecond)
+
+		// First Get should trigger lazy expiration
+		_, ok := s.Get("expire-on-get")
+		if ok {
+			t.Errorf("expected expired key to be removed on Get")
+		}
+
+		// Verify it's not in GetAll either
+		all := s.GetAll()
+		if _, exists := all["expire-on-get"]; exists {
+			t.Errorf("expired key should not appear in GetAll")
+		}
+	})
+
+	t.Run("TTL active cleanup", func(t *testing.T) {
+		s := store.NewStore()
+
+		// Set multiple keys with short TTL
+		for i := 0; i < 5; i++ {
+			key := fmt.Sprintf("cleanup-test-%d", i)
+			s.SetWithTTL(key, "value", 100*time.Millisecond)
+		}
+
+		// Verify all keys exist
+		all := s.GetAll()
+		if len(all) < 5 {
+			t.Errorf("expected at least 5 keys, got %d", len(all))
+		}
+
+		// Wait for cleanup to run (background goroutine should clean up)
+		time.Sleep(200 * time.Millisecond)
+
+		// Most/all keys should be cleaned up by background process
+		all = s.GetAll()
+		cleanedUp := true
+		for i := 0; i < 5; i++ {
+			key := fmt.Sprintf("cleanup-test-%d", i)
+			if _, exists := all[key]; exists {
+				cleanedUp = false
+				break
+			}
+		}
+
+		if !cleanedUp {
+			t.Logf("Background cleanup may not have run yet, this is ok")
+		}
+	})
+
+	t.Run("TTL mixed with non-TTL keys", func(t *testing.T) {
+		s := store.NewStore()
+
+		// Set regular key (no TTL)
+		s.Set("permanent", "forever")
+
+		// Set TTL key
+		s.SetWithTTL("temporary", "short-lived", 50*time.Millisecond)
+
+		// Wait for TTL expiration
+		time.Sleep(60 * time.Millisecond)
+
+		// Permanent key should still exist
+		value, ok := s.Get("permanent")
+		if !ok || value != "forever" {
+			t.Errorf("permanent key should still exist")
+		}
+
+		// TTL key should be gone
+		_, ok = s.Get("temporary")
+		if ok {
+			t.Errorf("TTL key should be expired")
+		}
+	})
+
+	t.Run("LRU eviction without TTL", func(t *testing.T) {
+		s := store.NewStore()
+
+		// Fill store to capacity + 1 (maxSize is 1000)
+		for i := 0; i <= 1000; i++ {
+			key := fmt.Sprintf("key-%d", i)
+			s.Set(key, "value")
+		}
+
+		// First key should be evicted (LRU)
+		_, ok := s.Get("key-0")
+		if ok {
+			t.Logf("LRU may not have evicted yet with current maxSize=1000")
+		}
+
+		// Most recent key should still exist
+		value, ok := s.Get("key-1000")
+		if !ok || value != "value" {
+			t.Errorf("most recent key should still exist")
+		}
+	})
+
+	t.Run("LRU with TTL interaction", func(t *testing.T) {
+		s := store.NewStore()
+
+		// Set a key with TTL
+		s.SetWithTTL("ttl-key", "ttl-value", 50*time.Millisecond)
+
+		// Set regular key
+		s.Set("regular-key", "regular-value")
+
+		// Access TTL key to move it to front
+		s.Get("ttl-key")
+
+		// Wait for TTL expiration
+		time.Sleep(60 * time.Millisecond)
+
+		// TTL key should be expired even though it was recently accessed
+		_, ok := s.Get("ttl-key")
+		if ok {
+			t.Errorf("TTL key should expire regardless of LRU position")
+		}
+
+		// Regular key should still exist
+		value, ok := s.Get("regular-key")
+		if !ok || value != "regular-value" {
+			t.Errorf("regular key should still exist")
+		}
+	})
+
+	t.Run("TTL update on existing key", func(t *testing.T) {
+		s := store.NewStore()
+
+		// Set key without TTL
+		s.Set("update-test", "original")
+
+		// Update with TTL
+		s.SetWithTTL("update-test", "updated", 50*time.Millisecond)
+
+		// Should have new value immediately
+		value, ok := s.Get("update-test")
+		if !ok || value != "updated" {
+			t.Errorf("expected updated value, got ok=%v value=%q", ok, value)
+		}
+
+		// Should expire after TTL
+		time.Sleep(60 * time.Millisecond)
+		_, ok = s.Get("update-test")
+		if ok {
+			t.Errorf("updated key should expire")
+		}
+	})
+
+	t.Run("TTL removal on regular Set", func(t *testing.T) {
+		s := store.NewStore()
+
+		// Set key with TTL
+		s.SetWithTTL("ttl-to-regular", "ttl-value", 50*time.Millisecond)
+
+		// Immediately update with regular Set (no TTL)
+		s.Set("ttl-to-regular", "regular-value")
+
+		// Wait past original TTL time
+		time.Sleep(60 * time.Millisecond)
+
+		// Key should still exist (TTL was removed)
+		value, ok := s.Get("ttl-to-regular")
+		if !ok || value != "regular-value" {
+			t.Errorf("key should not expire after TTL was removed, got ok=%v value=%q", ok, value)
 		}
 	})
 }

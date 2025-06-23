@@ -62,6 +62,16 @@ func handleWsConnection(hub *observer.Hub, s *store.Store, w http.ResponseWriter
 			if err := ws.WriteJSON(resp); err != nil {
 				slog.Error("failed to send GET response", "error", err)
 			}
+		case "GET_ALL":
+			allData := s.GetAll()
+			resp := struct {
+				Action string            `json:"action"`
+				Data   map[string]string `json:"data"`
+			}{Action: "sync", Data: allData}
+
+			if err := ws.WriteJSON(resp); err != nil {
+				slog.Error("failed to send sync response", "error", err)
+			}
 		case "DEL":
 			if s.Delete(cmd.Key) {
 				hub.BroadcastMessage(observer.UpdateMessage{
