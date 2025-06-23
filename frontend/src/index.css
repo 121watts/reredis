@@ -1,4 +1,4 @@
-@import "tailwindcss";
+@import 'tailwindcss';
 
 /* Custom animations */
 @keyframes blob {
@@ -27,6 +27,17 @@
   }
 }
 
+@keyframes slide-in-from-right {
+  from {
+    opacity: 0;
+    transform: translateX(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
 .animate-blob {
   animation: blob 7s infinite;
 }
@@ -46,6 +57,10 @@
 
 .slide-in-from-left {
   animation-name: slide-in-from-left;
+}
+
+.slide-in-from-right {
+  animation-name: slide-in-from-right;
 }
 
 /* Glassmorphism backdrop support */
