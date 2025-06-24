@@ -95,19 +95,20 @@ export const Toast = ({
   const getColors = () => {
     switch (type) {
       case 'success':
-        return 'bg-emerald-500/20 border-emerald-500/30 text-emerald-300'
+        return 'bg-emerald-500/80 border-emerald-500/60 text-white'
       case 'error':
-        return 'bg-red-500/20 border-red-500/30 text-red-300'
+        return 'bg-red-500/80 border-red-500/60 text-white'
       case 'warning':
-        return 'bg-yellow-500/20 border-yellow-500/30 text-yellow-300'
+        return 'bg-yellow-500/80 border-yellow-500/60 text-white'
       case 'info':
-        return 'bg-blue-500/20 border-blue-500/30 text-blue-300'
+        return 'bg-blue-500/80 border-blue-500/60 text-white'
     }
   }
 
   return (
     <div
-      className={`flex items-center gap-3 p-4 rounded-2xl backdrop-blur-xl border shadow-lg transform transition-all duration-300 animate-in slide-in-from-right ${getColors()}`}
+      className={`flex items-center gap-3 p-4 rounded-2xl backdrop-blur-xl border shadow-2xl transform transition-all duration-300 animate-in slide-in-from-right ${getColors()}`}
+      style={{ filter: 'drop-shadow(0 10px 20px rgba(0, 0, 0, 0.5))' }}
     >
       <div className="flex-shrink-0">{getIcon()}</div>
       <div className="flex-1 text-sm font-medium">{message}</div>

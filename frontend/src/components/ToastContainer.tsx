@@ -11,10 +11,12 @@ export const ToastContainer = ({
   onRemoveToast,
 }: ToastContainerProps) => {
   return (
-    <div className="fixed top-4 right-4 z-50 space-y-3 w-80">
-      {toasts.map((toast) => (
-        <Toast key={toast.id} {...toast} onClose={onRemoveToast} />
-      ))}
+    <div className="fixed top-4 right-4 z-[9999] space-y-3 w-80 max-w-[calc(100vw-2rem)] pointer-events-none">
+      <div className="space-y-3 pointer-events-auto">
+        {toasts.map((toast) => (
+          <Toast key={toast.id} {...toast} onClose={onRemoveToast} />
+        ))}
+      </div>
     </div>
   )
 }
