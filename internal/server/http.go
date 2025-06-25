@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/121watts/reredis/internal/cluster"
 	"github.com/121watts/reredis/internal/observer"
 	"github.com/121watts/reredis/internal/query"
 	"github.com/121watts/reredis/internal/store"
@@ -21,7 +22,31 @@ var upgrader = websocket.Upgrader{
 	},
 }
 
-func handleWsConnection(hub *observer.Hub, s *store.Store, w http.ResponseWriter, r *http.Request) {
+type ClusterNodeInfo struct {
+	ID        string `json:"id"`
+	Host      string `json:"host"`
+	Port      string `json:"port"`
+	SlotStart int32  `json:"slotStart"`
+	SlotEnd   int32  `json:"slotEnd"`
+	KeyCount  int    `json:"keyCount"`
+}
+
+type ClusterInfoResponse struct {
+	Action        string            `json:"action"`
+	Nodes         []ClusterNodeInfo `json:"nodes"`
+	CurrentNodeID string            `json:"currentNodeId"`
+	TotalSlots    int32             `json:"totalSlots"`
+	ClusterSize   int               `json:"clusterSize"`
+}
+
+type ClusterEventResponse struct {
+	Action  string `json:"action"`
+	Event   string `json:"event"`
+	NodeID  string `json:"nodeId,omitempty"`
+	Message string `json:"message"`
+}
+
+func handleWsConnection(hub *observer.Hub, s *store.Store, cm *cluster.Manager, w http.ResponseWriter, r *http.Request) {
 	ws, err := upgrader.Upgrade(w, r, nil)
 
 	if err != nil {
@@ -80,6 +105,37 @@ func handleWsConnection(hub *observer.Hub, s *store.Store, w http.ResponseWriter
 					Action: "del", Key: cmd.Key,
 				})
 			}
+		case "CLUSTER_INFO":
+			// Create cluster info response
+			nodes := make([]ClusterNodeInfo, 0, len(cm.Nodes))
+			for _, node := range cm.Nodes {
+				keyCount := 0
+				// Count keys belonging to this node (simplified - count all keys for current node)
+				if node.ID == cm.Node.ID {
+					keyCount = len(s.GetAll())
+				}
+
+				nodes = append(nodes, ClusterNodeInfo{
+					ID:        node.ID,
+					Host:      node.Host,
+					Port:      node.Port,
+					SlotStart: node.Slot.Start,
+					SlotEnd:   node.Slot.End,
+					KeyCount:  keyCount,
+				})
+			}
+
+			resp := ClusterInfoResponse{
+				Action:        "cluster_info",
+				Nodes:         nodes,
+				CurrentNodeID: cm.Node.ID,
+				TotalSlots:    cluster.SLOT_RANGE,
+				ClusterSize:   len(cm.Nodes),
+			}
+
+			if err := ws.WriteJSON(resp); err != nil {
+				slog.Error("failed to send cluster info response", "error", err)
+			}
 		}
 	}
 }
@@ -117,10 +173,10 @@ func handleGetKeys(s *store.Store, w http.ResponseWriter, r *http.Request) {
 }
 
 // NewHTTPHandler creates the main http handler for the web server.
-func NewHTTPHandler(hub *observer.Hub, s *store.Store, logger *slog.Logger) http.Handler {
+func NewHTTPHandler(hub *observer.Hub, s *store.Store, cm *cluster.Manager, logger *slog.Logger) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
-		handleWsConnection(hub, s, w, r)
+		handleWsConnection(hub, s, cm, w, r)
 	})
 
 	mux.HandleFunc("GET /api/v1/keys", func(w http.ResponseWriter, r *http.Request) {
@@ -130,8 +186,8 @@ func NewHTTPHandler(hub *observer.Hub, s *store.Store, logger *slog.Logger) http
 	return mux
 }
 
-func StartWebServer(addr string, hub *observer.Hub, logger *slog.Logger, s *store.Store) error {
-	handler := NewHTTPHandler(hub, s, logger)
+func StartWebServer(addr string, hub *observer.Hub, logger *slog.Logger, s *store.Store, cm *cluster.Manager) error {
+	handler := NewHTTPHandler(hub, s, cm, logger)
 	logger.Info("starting web server for websockets", "addr", addr)
 	return http.ListenAndServe(addr, handler)
 }

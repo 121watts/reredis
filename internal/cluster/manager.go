@@ -71,6 +71,11 @@ func (m *Manager) InitializeCluster() {
 }
 
 func (m *Manager) GetNodeForSlots(slot int32) *Node {
+	// If cluster is not initialized (< 3 nodes), return the current node for any slot
+	if len(m.Nodes) < 3 {
+		return m.Node
+	}
+
 	for _, node := range m.Nodes {
 		if slot >= node.Slot.Start && slot <= node.Slot.End {
 			return node

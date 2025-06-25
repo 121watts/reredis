@@ -79,12 +79,21 @@ func handleConnection(conn net.Conn, s *store.Store, logger *slog.Logger, hub *o
 }
 
 func checkSlotOwnership(key string, cm *cluster.Manager, conn net.Conn) bool {
+	// If cluster is not initialized (< 3 nodes), current node handles all slots
+	if len(cm.Nodes) < 3 {
+		return true
+	}
+	
 	slot := cluster.CalculateSlot(key)
 	node := cm.Node
 
 	if slot < node.Slot.Start || slot > node.Slot.End {
 		ownerNode := cm.GetNodeForSlots(slot)
-		fmt.Fprintf(conn, "-MOVED %d %s:%s\r\n", slot, ownerNode.Host, ownerNode.Port)
+		if ownerNode != nil {
+			fmt.Fprintf(conn, "-MOVED %d %s:%s\r\n", slot, ownerNode.Host, ownerNode.Port)
+		} else {
+			fmt.Fprintf(conn, "-ERR no node found for slot %d\r\n", slot)
+		}
 		return false
 	}
 	return true

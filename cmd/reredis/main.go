@@ -38,7 +38,7 @@ func main() {
 		}
 	}()
 
-	if err := server.StartWebServer(httpAddr, hub, logger, s); err != nil {
+	if err := server.StartWebServer(httpAddr, hub, logger, s, cm); err != nil {
 		logger.Error("http server failed", "error", err)
 		os.Exit(1)
 	}

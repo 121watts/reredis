@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/121watts/reredis/internal/cluster"
 	"github.com/121watts/reredis/internal/observer"
 	"github.com/121watts/reredis/internal/server"
 	"github.com/121watts/reredis/internal/store"
@@ -23,6 +24,7 @@ func startTestServer(t *testing.T) string {
 	hub := observer.NewHub(logger)
 	go hub.Run()
 	s := store.NewStore()
+	cm := cluster.NewManager("localhost", "6379")
 	ln, err := net.Listen("tcp", "localhost:0")
 	if err != nil {
 		t.Fatalf("failed to listen: %v", err)
@@ -30,7 +32,7 @@ func startTestServer(t *testing.T) string {
 	addr := ln.Addr().String()
 
 	go func() {
-		if err := server.StartWithListener(ln, s, logger, hub); err != nil {
+		if err := server.StartWithListener(ln, s, logger, hub, cm); err != nil {
 			t.Logf("Server exited with error: %v", err)
 		}
 	}()
@@ -143,9 +145,10 @@ func TestWebsocketIntegration(t *testing.T) {
 	hub := observer.NewHub(logger)
 	go hub.Run()
 	s := store.NewStore()
+	cm := cluster.NewManager("localhost", "6379")
 
 	// Start an httptest server for WebSockets
-	httpHandler := server.NewHTTPHandler(hub, s, logger)
+	httpHandler := server.NewHTTPHandler(hub, s, cm, logger)
 	httpServer := httptest.NewServer(httpHandler)
 	t.Cleanup(httpServer.Close)
 
