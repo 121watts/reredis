@@ -1,8 +1,9 @@
 import { Layout } from '@/components/Layout'
 import { Header } from '@/components/Header'
 import { CommandForm } from '@/components/CommandForm'
-import { DataTable } from '@/components/DataTable'
+import { DataViews } from '@/components/DataViews'
 import { ToastContainer } from '@/components/ToastContainer'
+import { MockDataLoader } from '@/components/MockDataLoader'
 import { useWebSocket } from '@/hooks/useWebSocket'
 import { useToast } from '@/hooks/useToast'
 
@@ -15,7 +16,8 @@ function App() {
   const handleSendCommand = (
     action: 'set' | 'del',
     key: string,
-    value?: string
+    value?: string,
+    silent = false
   ) => {
     if (!isConnected) {
       error('WebSocket is not connected')
@@ -29,10 +31,12 @@ function App() {
 
     sendCommand(action, key, value)
 
-    if (action === 'set') {
-      success(`Key "${key}" has been set`)
-    } else {
-      success(`Key "${key}" has been deleted`)
+    if (!silent) {
+      if (action === 'set') {
+        success(`Key "${key}" has been set`)
+      } else {
+        success(`Key "${key}" has been deleted`)
+      }
     }
   }
 
@@ -55,7 +59,11 @@ function App() {
           onSendCommand={handleSendCommand}
           isConnected={isConnected}
         />
-        <DataTable
+        <MockDataLoader
+          onLoadData={handleSendCommand}
+          isConnected={isConnected}
+        />
+        <DataViews
           data={data}
           onDelete={handleDelete}
           isConnected={isConnected}

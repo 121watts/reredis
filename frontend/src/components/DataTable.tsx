@@ -1,3 +1,5 @@
+import { ValueDisplay } from '@/components/ValueDisplay'
+
 interface DataTableProps {
   data: Record<string, string>
   onDelete: (key: string) => void
@@ -57,9 +59,7 @@ export const DataTable = ({ data, onDelete, isConnected }: DataTableProps) => {
                     </div>
                   </td>
                   <td className="p-6">
-                    <span className="font-mono text-slate-300 bg-slate-800/50 px-3 py-1 rounded-lg">
-                      {value}
-                    </span>
+                    <ValueDisplay value={value} />
                   </td>
                   <td className="p-6 text-right">
                     <button

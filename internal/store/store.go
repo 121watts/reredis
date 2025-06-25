@@ -3,6 +3,7 @@ package store
 import (
 	"container/list"
 	"math/rand"
+	"sort"
 	"sync"
 	"time"
 )
@@ -87,6 +88,20 @@ func (s *Store) GetAll() map[string]string {
 	}
 
 	return dataCopy
+}
+
+func (s *Store) GetAllKeys() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	keys := make([]string, 0, len(s.data))
+	for k := range s.data {
+		keys = append(keys, k)
+	}
+
+	sort.Strings(keys)
+
+	return keys
 }
 
 func (s *Store) Get(key string) (string, bool) {

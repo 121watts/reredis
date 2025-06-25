@@ -4,9 +4,11 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/121watts/reredis/internal/observer"
+	"github.com/121watts/reredis/internal/query"
 	"github.com/121watts/reredis/internal/store"
 	"github.com/gorilla/websocket"
 )
@@ -82,12 +84,49 @@ func handleWsConnection(hub *observer.Hub, s *store.Store, w http.ResponseWriter
 	}
 }
 
+func handleGetKeys(s *store.Store, w http.ResponseWriter, r *http.Request) {
+	// Add CORS headers
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+
+	// Handle preflight requests
+	if r.Method == "OPTIONS" {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	rLimit := r.URL.Query().Get("limit")
+	cursor := r.URL.Query().Get("cursor")
+
+	limit, err := strconv.Atoi(rLimit)
+	if err != nil {
+		limit = 20
+	}
+
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+
+	resp := query.HandleCursorPagination(s, cursor, limit)
+	w.Header().Set("Content-Type", "application/json")
+
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		slog.Error("failed to encode response", "error", err)
+	}
+}
+
 // NewHTTPHandler creates the main http handler for the web server.
 func NewHTTPHandler(hub *observer.Hub, s *store.Store, logger *slog.Logger) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 		handleWsConnection(hub, s, w, r)
 	})
+
+	mux.HandleFunc("GET /api/v1/keys", func(w http.ResponseWriter, r *http.Request) {
+		handleGetKeys(s, w, r)
+	})
+
 	return mux
 }
 
