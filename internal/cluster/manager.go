@@ -6,16 +6,22 @@ import (
 	"sort"
 )
 
+// Manager coordinates cluster operations and maintains the distributed state.
+// This centralizes cluster topology management, enabling consistent routing
+// decisions and cluster lifecycle operations across all nodes.
 type Manager struct {
-	Nodes map[string]*Node
-	Node  *Node
+	Nodes map[string]*Node // All known nodes in the cluster for routing decisions
+	Node  *Node            // This server's node identity within the cluster
 }
 
+// NewManager creates a cluster manager for a single node server.
+// This establishes the initial cluster state and node identity, allowing
+// the server to operate standalone or join a larger cluster later.
 func NewManager(host, port string) *Manager {
 	nodeId := generateNodeID()
 	node := &Node{
 		ID:   nodeId,
-		Slot: Slot{Start: -1, End: -1},
+		Slot: Slot{Start: -1, End: -1}, // Uninitialized slots until cluster forms
 		Host: host,
 		Port: port,
 	}
@@ -31,23 +37,31 @@ func NewManager(host, port string) *Manager {
 	return m
 }
 
+// AddNode registers a new node in the cluster topology.
+// This enables cluster expansion and triggers automatic slot distribution
+// once enough nodes join to form a viable cluster.
 func (m *Manager) AddNode(host, port string) {
 	newNodeId := generateNodeID()
 	m.Nodes[newNodeId] = &Node{
 		ID:   newNodeId,
-		Slot: Slot{Start: -1, End: -1},
+		Slot: Slot{Start: -1, End: -1}, // Will be assigned during initialization
 		Host: host,
 		Port: port,
 	}
 
 	// Initialize cluster when we have 3 nodes
+	// Redis requires minimum 3 nodes for proper cluster operation and failover
 	if len(m.Nodes) == 3 {
 		m.InitializeCluster()
 	}
 }
 
+// InitializeCluster distributes hash slots evenly across available nodes.
+// This creates a balanced data distribution and enables the cluster to handle
+// client requests with predictable performance characteristics.
 func (m *Manager) InitializeCluster() {
 	// Get all node IDs and sort them for consistent slot assignment
+	// Sorting ensures deterministic slot distribution across cluster restarts
 	nodeIDs := make([]string, 0, len(m.Nodes))
 	for nodeID := range m.Nodes {
 		nodeIDs = append(nodeIDs, nodeID)
@@ -61,7 +75,7 @@ func (m *Manager) InitializeCluster() {
 		start := int32(i) * slotsPerNode
 		end := start + slotsPerNode - 1
 
-		// Last node gets any remaining slots
+		// Last node gets any remaining slots to ensure complete coverage
 		if i == len(nodeIDs)-1 {
 			end = SLOT_RANGE - 1
 		}
@@ -70,8 +84,12 @@ func (m *Manager) InitializeCluster() {
 	}
 }
 
+// GetNodeForSlots finds which node is responsible for a given hash slot.
+// This enables request routing to the correct node and supports MOVED
+// redirections when clients contact the wrong node for a key.
 func (m *Manager) GetNodeForSlots(slot int32) *Node {
 	// If cluster is not initialized (< 3 nodes), return the current node for any slot
+	// This allows single nodes to handle all operations during development/testing
 	if len(m.Nodes) < 3 {
 		return m.Node
 	}
@@ -85,6 +103,9 @@ func (m *Manager) GetNodeForSlots(slot int32) *Node {
 	return nil
 }
 
+// generateNodeID creates a unique identifier for cluster nodes.
+// This ensures each node can be distinctly identified during cluster
+// operations and maintains consistency across network communications.
 func generateNodeID() string {
 	b := make([]byte, 20)
 	rand.Read(b)

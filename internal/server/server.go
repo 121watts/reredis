@@ -78,8 +78,12 @@ func handleConnection(conn net.Conn, s *store.Store, logger *slog.Logger, hub *o
 	}
 }
 
+// checkSlotOwnership verifies if the current node should handle a key's operation.
+// This enforces cluster data partitioning by redirecting clients to the correct
+// node when they contact the wrong server, maintaining data consistency across the cluster.
 func checkSlotOwnership(key string, cm *cluster.Manager, conn net.Conn) bool {
 	// If cluster is not initialized (< 3 nodes), current node handles all slots
+	// This allows single nodes to operate normally during development and testing
 	if len(cm.Nodes) < 3 {
 		return true
 	}
@@ -90,6 +94,8 @@ func checkSlotOwnership(key string, cm *cluster.Manager, conn net.Conn) bool {
 	if slot < node.Slot.Start || slot > node.Slot.End {
 		ownerNode := cm.GetNodeForSlots(slot)
 		if ownerNode != nil {
+			// Send MOVED response to redirect client to the correct node
+			// This follows Redis cluster protocol for client-side routing
 			fmt.Fprintf(conn, "-MOVED %d %s:%s\r\n", slot, ownerNode.Host, ownerNode.Port)
 		} else {
 			fmt.Fprintf(conn, "-ERR no node found for slot %d\r\n", slot)
@@ -169,6 +175,9 @@ func handleDelete(parts []string, s *store.Store, conn net.Conn, hub *observer.H
 	}
 }
 
+// handleCluster processes CLUSTER command and its subcommands.
+// This provides the Redis cluster management interface, allowing clients
+// to discover topology, manage nodes, and monitor cluster health.
 func handleCluster(parts []string, s *store.Store, conn net.Conn, hub *observer.Hub, logger *slog.Logger, cm *cluster.Manager) {
 	if len(parts) < 2 {
 		fmt.Fprintf(conn, "-ERR wrong number of arguments for 'CLUSTER'\r\n")
@@ -189,6 +198,9 @@ func handleCluster(parts []string, s *store.Store, conn net.Conn, hub *observer.
 	}
 }
 
+// handleClusterMeet adds a new node to the cluster topology.
+// This implements the Redis CLUSTER MEET command, enabling dynamic cluster
+// expansion by allowing existing nodes to introduce new members to the cluster.
 func handleClusterMeet(parts []string, s *store.Store, conn net.Conn, hub *observer.Hub, logger *slog.Logger, cm *cluster.Manager) {
 	if len(parts) != 4 {
 		fmt.Fprintf(conn, "-ERR wrong number of arguments for 'CLUSTER MEET'\r\n")
@@ -201,6 +213,7 @@ func handleClusterMeet(parts []string, s *store.Store, conn net.Conn, hub *obser
 	logger.Info("cluster meet requested", "ip", host, "port", port)
 
 	// Add a new node to the cluster (simplified - normally you'd connect and exchange info)
+	// This enables cluster discovery and growth by building the node topology
 	cm.AddNode(host, port)
 
 	logger.Info("node added to cluster", "total-nodes", len(cm.Nodes))
@@ -208,11 +221,17 @@ func handleClusterMeet(parts []string, s *store.Store, conn net.Conn, hub *obser
 	fmt.Fprintf(conn, "+OK\r\n")
 }
 
+// handleClusterNodes returns information about all known cluster nodes.
+// This supports client-side routing by providing the current cluster topology,
+// allowing smart clients to cache node locations and route requests efficiently.
 func handleClusterNodes(parts []string, s *store.Store, conn net.Conn, hub *observer.Hub, logger *slog.Logger, cm *cluster.Manager) {
 	// TODO: Return cluster topology information
 	fmt.Fprintf(conn, "+TODO: cluster nodes not implemented\r\n")
 }
 
+// handleClusterInfo provides cluster health and status information.
+// This enables monitoring and debugging by exposing cluster state, slot coverage,
+// and operational metrics to administrators and monitoring tools.
 func handleClusterInfo(parts []string, s *store.Store, conn net.Conn, hub *observer.Hub, logger *slog.Logger, cm *cluster.Manager) {
 	// TODO: Return cluster status information
 	fmt.Fprintf(conn, "+TODO: cluster info not implemented\r\n")
