@@ -11,7 +11,7 @@ func NewWriter(filename string) (*Writer, error) {
 	if err != nil {
 		return nil, err
 	}
-	
+
 	return &Writer{
 		file: file,
 	}, nil
@@ -23,7 +23,7 @@ func (w *Writer) WriteCommand(cmd []string) error {
 	if err != nil {
 		return err
 	}
-	
+
 	// Force write to disk
 	return w.file.Sync()
 }

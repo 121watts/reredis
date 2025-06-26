@@ -30,10 +30,10 @@ func NewCommandHandler(store *store.Store, hub *observer.Hub, ww *wal.Writer, cm
 }
 
 type OperationResult struct {
-	Key         string
-	Value       string
-	Action      string
-	NeedsStats  bool
+	Key        string
+	Value      string
+	Action     string
+	NeedsStats bool
 }
 
 func (c *CommandHandler) HandleSet(parts []string) (*OperationResult, error) {

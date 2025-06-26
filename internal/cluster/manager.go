@@ -93,7 +93,12 @@ func (m *Manager) GetNodeForSlots(slot int32) *Node {
 		return nil
 	}
 	
-	// If cluster is not initialized (< 3 nodes), return the current node for any slot
+	// Check for invalid slot range
+	if slot < 0 || slot >= SLOT_RANGE {
+		return nil
+	}
+	
+	// If cluster is not initialized (< 3 nodes), return the current node for any valid slot
 	// This allows single nodes to handle all operations during development/testing
 	if len(m.Nodes) < 3 {
 		return m.Node
@@ -109,7 +114,7 @@ func (m *Manager) GetNodeForSlots(slot int32) *Node {
 		}
 	}
 
-	// If no node found, return current node as fallback to prevent nil pointer panics
+	// If no node found for a valid slot, return current node as fallback to prevent nil pointer panics
 	// This ensures cluster operations continue even in edge cases
 	return m.Node
 }

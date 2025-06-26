@@ -203,7 +203,7 @@ func handleSetCommand(parts []string, conn net.Conn, logger *slog.Logger, handle
 	}
 }
 
-func handleGetCommand(parts []string, conn net.Conn, logger *slog.Logger, handler *CommandHandler) {
+func handleGetCommand(parts []string, conn net.Conn, _ *slog.Logger, handler *CommandHandler) {
 	value, err := handler.HandleGet(parts)
 	if err != nil {
 		fmt.Fprintf(conn, "-ERR %s\r\n", err.Error())
@@ -212,7 +212,7 @@ func handleGetCommand(parts []string, conn net.Conn, logger *slog.Logger, handle
 	}
 }
 
-func handleDeleteCommand(parts []string, conn net.Conn, logger *slog.Logger, handler *CommandHandler) {
+func handleDeleteCommand(parts []string, conn net.Conn, _ *slog.Logger, handler *CommandHandler) {
 	deleted, result, err := handler.HandleDelete(parts)
 	if err != nil {
 		fmt.Fprintf(conn, "-ERR %s\r\n", err.Error())
