@@ -1,3 +1,6 @@
+// Package main provides the entry point for the Reredis server.
+// This lightweight Redis-compatible server supports clustering, real-time WebSocket
+// updates, and TTL-based key expiration for distributed applications.
 package main
 
 import (
@@ -12,6 +15,9 @@ import (
 	"github.com/121watts/reredis/internal/store"
 )
 
+// main initializes and starts the Reredis server with both TCP and HTTP interfaces.
+// This enables Redis protocol compatibility for existing applications while providing
+// WebSocket support for real-time features and modern web applications.
 func main() {
 	tcpPort := flag.Int("port", 6379, "TCP port for Redis protocol")
 	httpPort := flag.Int("http-port", 8080, "HTTP port for WebSocket connections")

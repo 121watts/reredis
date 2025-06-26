@@ -1,3 +1,6 @@
+// Package store provides a thread-safe in-memory key-value store with LRU eviction and TTL support.
+// This combines Redis-like semantics with automatic memory management, enabling predictable
+// performance for caching and session storage in distributed applications.
 package store
 
 import (
@@ -8,29 +11,44 @@ import (
 	"time"
 )
 
+// cacheItem represents a single key-value pair with optional expiration.
+// This encapsulates the data needed for both LRU tracking and TTL management,
+// enabling efficient memory usage and automatic cleanup.
 type cacheItem struct {
 	key        string
 	value      string
-	expiration *time.Time
+	expiration *time.Time // nil means no expiration
 }
 
+// Store provides a thread-safe LRU cache with TTL support and automatic cleanup.
+// This balances memory usage with performance by evicting old data and expired keys,
+// making it suitable for high-throughput applications with predictable memory requirements.
 type Store struct {
-	data    map[string]*list.Element // map key to list element
-	lruList *list.List               // doubly linked list for LRU ordering
-	maxSize int                      // maximum number of items
-	mu      sync.Mutex
-	withTTL map[string]bool
+	data    map[string]*list.Element // Fast key lookup to list elements for O(1) access
+	lruList *list.List               // Doubly linked list for efficient LRU operations
+	maxSize int                      // Prevents unbounded memory growth
+	mu      sync.Mutex               // Ensures thread safety for concurrent access
+	withTTL map[string]bool          // Tracks keys with TTL for efficient cleanup sampling
 }
 
+// Set stores a key-value pair without expiration.
+// This provides permanent storage until evicted by LRU policy, making it suitable
+// for configuration data and long-lived application state.
 func (s *Store) Set(key, value string) {
 	s.setInternal(key, value, nil)
 }
 
+// SetWithTTL stores a key-value pair with automatic expiration after the specified duration.
+// This enables temporary data storage for sessions, caches, and rate limiting,
+// reducing memory usage and providing automatic cleanup.
 func (s *Store) SetWithTTL(key, value string, ttl time.Duration) {
 	expiration := time.Now().Add(ttl)
 	s.setInternal(key, value, &expiration)
 }
 
+// setInternal handles the core storage logic for both permanent and TTL-based keys.
+// This centralizes the LRU management and TTL tracking, ensuring consistent behavior
+// and optimal performance across different storage scenarios.
 func (s *Store) setInternal(key, value string, expiration *time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -66,6 +84,9 @@ func (s *Store) setInternal(key, value string, expiration *time.Time) {
 	}
 }
 
+// evictLRU removes the least recently used item to maintain memory limits.
+// This prevents unbounded memory growth while preserving the most valuable data,
+// ensuring predictable performance even under heavy load.
 func (s *Store) evictLRU() {
 	// Remove least recently used item (back of list)
 	elem := s.lruList.Back()
@@ -77,6 +98,9 @@ func (s *Store) evictLRU() {
 	}
 }
 
+// GetAll returns a snapshot of all key-value pairs currently in the store.
+// This enables bulk operations and state synchronization, providing a consistent
+// view of the data at a specific point in time for debugging and replication.
 func (s *Store) GetAll() map[string]string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -90,6 +114,9 @@ func (s *Store) GetAll() map[string]string {
 	return dataCopy
 }
 
+// GetAllKeys returns a sorted list of all keys currently in the store.
+// This supports administrative operations and key enumeration for applications
+// that need to iterate over stored data in a predictable order.
 func (s *Store) GetAllKeys() []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -104,6 +131,9 @@ func (s *Store) GetAllKeys() []string {
 	return keys
 }
 
+// Get retrieves a value by key and handles expiration automatically.
+// This provides lazy expiration to avoid memory leaks while maintaining LRU
+// ordering for optimal cache performance and accurate hit ratios.
 func (s *Store) Get(key string) (string, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -129,6 +159,9 @@ func (s *Store) Get(key string) (string, bool) {
 	return item.value, true
 }
 
+// Delete removes a key-value pair from the store if it exists.
+// This supports data cleanup and cache invalidation, returning whether
+// the key was actually present to enable proper application logic.
 func (s *Store) Delete(key string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -136,12 +169,16 @@ func (s *Store) Delete(key string) bool {
 	elem, ok := s.data[key]
 	if ok {
 		delete(s.data, key)
+		delete(s.withTTL, key)
 		s.lruList.Remove(elem)
 	}
 
 	return ok
 }
 
+// NewStore creates a new thread-safe store with automatic cleanup and LRU eviction.
+// This initializes the data structures and background processes needed for efficient
+// memory management and TTL expiration in high-concurrency environments.
 func NewStore() *Store {
 	store := &Store{
 		data:    make(map[string]*list.Element),
@@ -155,6 +192,9 @@ func NewStore() *Store {
 	return store
 }
 
+// cleanup runs a background process to actively expire TTL keys.
+// This implements Redis-like active expiration to prevent memory buildup,
+// using probabilistic sampling to balance CPU usage with memory efficiency.
 func (s *Store) cleanup() {
 	for {
 		s.mu.Lock()
@@ -216,4 +256,22 @@ func (s *Store) cleanup() {
 		s.mu.Unlock()
 		time.Sleep(100 * time.Millisecond)
 	}
+}
+
+// GetTotalByteSize calculates the total byte size of all stored data.
+// This provides storage usage statistics for monitoring and capacity planning,
+// including both keys and values in the calculation.
+func (s *Store) GetTotalByteSize() int64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	
+	var totalSize int64
+	
+	for _, elem := range s.data {
+		item := elem.Value.(*cacheItem)
+		// Count both key and value bytes (UTF-8 encoded)
+		totalSize += int64(len(item.key) + len(item.value))
+	}
+	
+	return totalSize
 }

@@ -26,7 +26,7 @@ func CalculateSlot(key string) int32 {
 			hashKey = key[start+1 : start+1+end]
 		}
 	}
-	
+
 	keyBytes := []byte(hashKey)
 	hashResult := crc32.ChecksumIEEE(keyBytes)
 

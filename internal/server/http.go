@@ -12,8 +12,14 @@ import (
 	"github.com/121watts/reredis/internal/query"
 	"github.com/121watts/reredis/internal/store"
 	"github.com/gorilla/websocket"
+	"fmt"
+	"io"
+	"time"
 )
 
+// upgrader configures WebSocket connection upgrades with permissive CORS for development.
+// This enables real-time communication between web browsers and the server while allowing
+// cross-origin requests for modern web application architectures.
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
 		// Allow all connections for development purposes.
@@ -22,6 +28,9 @@ var upgrader = websocket.Upgrader{
 	},
 }
 
+// ClusterNodeInfo represents node metadata for the WebSocket cluster dashboard.
+// This provides visibility into cluster topology and data distribution,
+// enabling monitoring and debugging of distributed operations.
 type ClusterNodeInfo struct {
 	ID        string `json:"id"`
 	Host      string `json:"host"`
@@ -29,8 +38,12 @@ type ClusterNodeInfo struct {
 	SlotStart int32  `json:"slotStart"`
 	SlotEnd   int32  `json:"slotEnd"`
 	KeyCount  int    `json:"keyCount"`
+	ByteSize  int64  `json:"byteSize"`
 }
 
+// ClusterInfoResponse provides comprehensive cluster state information via WebSocket.
+// This supports real-time cluster monitoring and administration tools
+// with current topology and health metrics.
 type ClusterInfoResponse struct {
 	Action        string            `json:"action"`
 	Nodes         []ClusterNodeInfo `json:"nodes"`
@@ -39,6 +52,9 @@ type ClusterInfoResponse struct {
 	ClusterSize   int               `json:"clusterSize"`
 }
 
+// ClusterEventResponse notifies clients about cluster topology changes.
+// This enables reactive dashboards and monitoring tools to update their
+// views when nodes join, leave, or change state.
 type ClusterEventResponse struct {
 	Action  string `json:"action"`
 	Event   string `json:"event"`
@@ -46,6 +62,9 @@ type ClusterEventResponse struct {
 	Message string `json:"message"`
 }
 
+// handleWsConnection manages individual WebSocket connections for real-time operations.
+// This enables web clients to perform Redis commands and receive live updates,
+// bridging the gap between traditional Redis clients and modern web applications.
 func handleWsConnection(hub *observer.Hub, s *store.Store, cm *cluster.Manager, w http.ResponseWriter, r *http.Request) {
 	ws, err := upgrader.Upgrade(w, r, nil)
 
@@ -109,10 +128,23 @@ func handleWsConnection(hub *observer.Hub, s *store.Store, cm *cluster.Manager, 
 			// Create cluster info response
 			nodes := make([]ClusterNodeInfo, 0, len(cm.Nodes))
 			for _, node := range cm.Nodes {
-				keyCount := 0
-				// Count keys belonging to this node (simplified - count all keys for current node)
+				var keyCount int
+				var byteSize int64
+				
+				// For the current node, get the actual stats from the store
 				if node.ID == cm.Node.ID {
 					keyCount = len(s.GetAll())
+					byteSize = s.GetTotalByteSize()
+					// Update the cluster manager with the actual counts
+					cm.UpdateKeyCount(keyCount)
+					cm.UpdateByteSize(byteSize)
+				} else {
+					// For other nodes, fetch the stats via HTTP
+					keyCount = getKeyCountFromNode(node.Host, node.Port)
+					byteSize = getByteSizeFromNode(node.Host, node.Port)
+					// Update the cluster manager with the fetched counts
+					node.KeyCount = keyCount
+					node.ByteSize = byteSize
 				}
 
 				nodes = append(nodes, ClusterNodeInfo{
@@ -122,6 +154,7 @@ func handleWsConnection(hub *observer.Hub, s *store.Store, cm *cluster.Manager, 
 					SlotStart: node.Slot.Start,
 					SlotEnd:   node.Slot.End,
 					KeyCount:  keyCount,
+					ByteSize:  byteSize,
 				})
 			}
 
@@ -140,6 +173,9 @@ func handleWsConnection(hub *observer.Hub, s *store.Store, cm *cluster.Manager, 
 	}
 }
 
+// handleGetKeys provides paginated key listing via HTTP REST API.
+// This supports administrative tools and debugging by enabling efficient
+// iteration over large key sets without overwhelming client or server memory.
 func handleGetKeys(s *store.Store, w http.ResponseWriter, r *http.Request) {
 	// Add CORS headers
 	w.Header().Set("Access-Control-Allow-Origin", "*")
@@ -172,7 +208,69 @@ func handleGetKeys(s *store.Store, w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// NewHTTPHandler creates the main http handler for the web server.
+// getKeyCountFromNode fetches the key count from a remote cluster node via HTTP.
+// This enables the cluster dashboard to display accurate statistics from all nodes.
+func getKeyCountFromNode(host, port string) int {
+	client := &http.Client{Timeout: 2 * time.Second}
+	url := fmt.Sprintf("http://%s:%s/keycount", host, getHTTPPort(port))
+	
+	resp, err := client.Get(url)
+	if err != nil {
+		return 0 // Return 0 if node is unreachable
+	}
+	defer resp.Body.Close()
+	
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return 0
+	}
+	
+	count, err := strconv.Atoi(strings.TrimSpace(string(body)))
+	if err != nil {
+		return 0
+	}
+	
+	return count
+}
+
+// getByteSizeFromNode fetches the byte size from a remote cluster node via HTTP.
+// This enables the cluster dashboard to display accurate storage statistics from all nodes.
+func getByteSizeFromNode(host, port string) int64 {
+	client := &http.Client{Timeout: 2 * time.Second}
+	url := fmt.Sprintf("http://%s:%s/bytesize", host, getHTTPPort(port))
+	
+	resp, err := client.Get(url)
+	if err != nil {
+		return 0 // Return 0 if node is unreachable
+	}
+	defer resp.Body.Close()
+	
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return 0
+	}
+	
+	size, err := strconv.ParseInt(strings.TrimSpace(string(body)), 10, 64)
+	if err != nil {
+		return 0
+	}
+	
+	return size
+}
+
+// getHTTPPort converts a TCP port to the corresponding HTTP port.
+// This assumes HTTP ports are TCP port + 2700 (e.g., 6379 -> 9079, 6380 -> 9080).
+func getHTTPPort(tcpPort string) string {
+	port, err := strconv.Atoi(tcpPort)
+	if err != nil {
+		return "9080" // Default fallback
+	}
+	return strconv.Itoa(port + 2700)
+}
+
+// NewHTTPHandler creates the main HTTP handler with WebSocket and REST endpoints.
+// This provides a unified interface for both real-time WebSocket operations
+// and traditional HTTP APIs, supporting diverse client needs and integration patterns.
 func NewHTTPHandler(hub *observer.Hub, s *store.Store, cm *cluster.Manager, logger *slog.Logger) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
@@ -183,9 +281,26 @@ func NewHTTPHandler(hub *observer.Hub, s *store.Store, cm *cluster.Manager, logg
 		handleGetKeys(s, w, r)
 	})
 
+	// Add keycount endpoint for cluster statistics
+	mux.HandleFunc("GET /keycount", func(w http.ResponseWriter, r *http.Request) {
+		count := len(s.GetAll())
+		w.Header().Set("Content-Type", "text/plain")
+		fmt.Fprintf(w, "%d", count)
+	})
+
+	// Add bytesize endpoint for cluster storage statistics
+	mux.HandleFunc("GET /bytesize", func(w http.ResponseWriter, r *http.Request) {
+		size := s.GetTotalByteSize()
+		w.Header().Set("Content-Type", "text/plain")
+		fmt.Fprintf(w, "%d", size)
+	})
+
 	return mux
 }
 
+// StartWebServer launches the HTTP server for WebSocket and REST API access.
+// This enables web-based clients and dashboards to interact with the Redis-compatible
+// store through modern protocols while maintaining compatibility with existing tools.
 func StartWebServer(addr string, hub *observer.Hub, logger *slog.Logger, s *store.Store, cm *cluster.Manager) error {
 	handler := NewHTTPHandler(hub, s, cm, logger)
 	logger.Info("starting web server for websockets", "addr", addr)

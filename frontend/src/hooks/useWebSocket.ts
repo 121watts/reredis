@@ -1,15 +1,26 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import type { ServerMessage, CommandMessage } from '@/types/messages'
+import type { ServerMessage, CommandMessage, ClusterNode } from '@/types/messages'
+import { dispatchClusterEvent } from '@/components/ClusterEvents'
+
+interface ClusterInfo {
+  nodes: ClusterNode[]
+  currentNodeId: string
+  totalSlots: number
+  clusterSize: number
+  totalKeys?: number
+}
 
 interface UseWebSocketReturn {
   data: Record<string, string>
   isConnected: boolean
-  sendCommand: (action: 'set' | 'del', key: string, value?: string) => void
+  clusterInfo: ClusterInfo | null
+  sendCommand: (action: 'set' | 'del' | 'cluster_info', key?: string, value?: string) => void
 }
 
 export const useWebSocket = (url: string): UseWebSocketReturn => {
   const [data, setData] = useState<Record<string, string>>({})
   const [isConnected, setIsConnected] = useState(false)
+  const [clusterInfo, setClusterInfo] = useState<ClusterInfo | null>(null)
   const ws = useRef<WebSocket | null>(null)
 
   useEffect(() => {
@@ -19,8 +30,9 @@ export const useWebSocket = (url: string): UseWebSocketReturn => {
     socket.onopen = () => {
       console.log('Connected to WebSocket')
       setIsConnected(true)
-      // On connect, ask the server for the current state
+      // On connect, ask the server for the current state and cluster info
       socket.send(JSON.stringify({ action: 'get_all' }))
+      socket.send(JSON.stringify({ action: 'cluster_info' }))
     }
 
     socket.onmessage = (event) => {
@@ -44,6 +56,43 @@ export const useWebSocket = (url: string): UseWebSocketReturn => {
             return newData
           })
           break
+        case 'cluster_info':
+          // Cluster information update
+          setClusterInfo({
+            nodes: message.nodes.map(node => ({
+              ...node,
+              isCurrentNode: node.id === message.currentNodeId
+            })),
+            currentNodeId: message.currentNodeId,
+            totalSlots: message.totalSlots,
+            clusterSize: message.clusterSize
+          })
+          break
+        case 'cluster_stats':
+          // Real-time cluster statistics update
+          setClusterInfo({
+            nodes: message.nodes.map(node => ({
+              ...node,
+              isCurrentNode: node.id === message.currentNodeId
+            })),
+            currentNodeId: message.currentNodeId,
+            totalSlots: message.totalSlots,
+            clusterSize: message.clusterSize,
+            totalKeys: message.totalKeys
+          })
+          break
+        case 'cluster_event':
+          // Cluster event notification
+          dispatchClusterEvent({
+            event: message.event,
+            nodeId: message.nodeId,
+            message: message.message
+          })
+          // Re-request cluster info to get updated state
+          if (ws.current && ws.current.readyState === WebSocket.OPEN) {
+            ws.current.send(JSON.stringify({ action: 'cluster_info' }))
+          }
+          break
       }
     }
 
@@ -64,16 +113,16 @@ export const useWebSocket = (url: string): UseWebSocketReturn => {
   }, [url])
 
   const sendCommand = useCallback(
-    (action: 'set' | 'del', key: string, value?: string) => {
+    (action: 'set' | 'del' | 'cluster_info', key?: string, value?: string) => {
       if (ws.current && ws.current.readyState === WebSocket.OPEN) {
-        if (!key) {
-          console.error('Key cannot be empty.')
+        if ((action === 'set' || action === 'del') && !key) {
+          console.error('Key cannot be empty for set/del operations.')
           return
         }
 
         const command: CommandMessage = {
           action,
-          key,
+          ...(key && { key }),
           ...(action === 'set' && value !== undefined && { value }),
         }
 
@@ -85,5 +134,5 @@ export const useWebSocket = (url: string): UseWebSocketReturn => {
     []
   )
 
-  return { data, isConnected, sendCommand }
+  return { data, isConnected, clusterInfo, sendCommand }
 }

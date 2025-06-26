@@ -12,8 +12,10 @@ type Slot struct {
 // Each node maintains its identity, network location, and assigned slot range
 // to enable distributed operations and cluster management.
 type Node struct {
-	ID   string // Unique identifier for cluster communication and consistency
-	Slot Slot   // Hash slot range this node is responsible for
-	Host string // Network address for client and inter-node communication  
-	Port string // Network port for establishing connections
+	ID       string // Unique identifier for cluster communication and consistency
+	Slot     Slot   // Hash slot range this node is responsible for
+	Host     string // Network address for client and inter-node communication
+	Port     string // Network port for establishing connections
+	KeyCount int    // Number of keys currently stored on this node
+	ByteSize int64  // Total bytes of data stored on this node
 }
