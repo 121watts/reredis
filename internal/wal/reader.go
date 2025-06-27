@@ -18,7 +18,7 @@ type Entry struct {
 	Command []string
 }
 
-func (r *Reader) NewReader(filename string) (*Reader, error) {
+func NewReader(filename string) (*Reader, error) {
 	file, err := os.OpenFile(filename, os.O_RDONLY, 0644)
 	if err != nil {
 		return nil, err
@@ -101,4 +101,12 @@ func (r *Reader) parseBulkString() (string, error) {
 	}
 
 	return data, nil
+}
+
+func (r *Reader) Close() error {
+	if r.file != nil {
+		return r.file.Close()
+	}
+
+	return nil
 }
