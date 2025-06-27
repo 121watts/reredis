@@ -5,6 +5,7 @@ A lightweight Redis-compatible key-value store written in Go with real-time WebS
 ## Features
 
 - **Redis Protocol Compatibility**: Supports core Redis commands (SET, GET, DEL)
+- **Write-Ahead Logging (WAL)**: RESP-encoded persistence for data durability
 - **Real-time Updates**: WebSocket server for live data synchronization
 - **Distributed Clustering**: Redis-compatible clustering with automatic slot distribution
 - **Web Interface**: React frontend for visualizing key-value data
@@ -12,11 +13,12 @@ A lightweight Redis-compatible key-value store written in Go with real-time WebS
 
 ## Architecture
 
-Reredis consists of three main components:
+Reredis consists of four main components:
 
 1. **TCP Server** (port 6379+): Implements Redis protocol for client connections
 2. **HTTP/WebSocket Server** (port 8080+): Provides real-time updates and web interface  
 3. **Cluster Manager**: Handles distributed hash slot assignment and node discovery
+4. **WAL System**: Write-Ahead Logging for data persistence and recovery
 
 ## Quick Start
 
@@ -119,7 +121,13 @@ go vet ./...
 │   │   ├── node.go       # Node definitions
 │   │   └── hashslot.go   # Hash slot calculation
 │   ├── server/           # TCP and HTTP servers
+│   │   ├── server.go     # TCP server and connection handling
+│   │   ├── handler.go    # Command business logic
+│   │   └── http.go       # WebSocket and HTTP server
 │   ├── store/            # In-memory key-value store
+│   ├── wal/              # Write-Ahead Logging
+│   │   ├── encoder.go    # RESP encoding for WAL entries
+│   │   └── writer.go     # WAL file writing
 │   └── observer/         # WebSocket event broadcasting
 ├── frontend/             # React web interface
 └── CLAUDE.md            # Development guidelines
@@ -158,9 +166,41 @@ Keys are automatically routed to the correct node based on their hash slot.
 - **Efficient**: Minimal overhead routing with O(1) slot lookups
 - **Real-time**: WebSocket updates with sub-millisecond latency
 
+## Write-Ahead Logging (WAL)
+
+Reredis implements WAL for data durability and crash recovery:
+
+- **RESP Format**: WAL entries use Redis protocol encoding for consistency
+- **Command Logging**: SET and DEL operations are logged before execution
+- **Atomic Writes**: Each WAL entry is synced to disk before responding to client
+- **Per-Node WAL**: Each cluster node maintains its own WAL file
+
+### WAL Implementation Status
+
+✅ **Completed**
+- [x] RESP encoding/decoding for WAL entries
+- [x] WAL writer with atomic file operations
+- [x] Command logging for SET and DEL operations
+- [x] Integration with command handlers
+- [x] Clean architecture separation (handlers vs I/O)
+
+🚧 **In Progress**
+- [ ] WAL reader for parsing entries
+- [ ] Recovery system to replay WAL on startup
+- [ ] WAL file rotation and management
+- [ ] Slot-aware WAL for cluster operations
+
+📋 **Planned WAL Features**
+- [ ] WAL compaction to remove redundant entries
+- [ ] Checksums for WAL integrity verification
+- [ ] Async WAL writing for performance optimization
+- [ ] Cross-node WAL synchronization during slot migration
+- [ ] WAL-based snapshot generation
+- [ ] Configurable WAL persistence policies
+
 ## Roadmap
 
-- [ ] Data persistence to disk
+- [x] ~~Data persistence to disk~~ (WAL implementation)
 - [ ] Master-replica replication  
 - [ ] Authentication and security
 - [ ] Memory optimization
